@@ -1,0 +1,126 @@
+---
+title: "Course Project ML"
+author: "Hazem Haffouz"
+date: "2024-01-02"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Leveraging Accelerometer Data to Predict Exercise Quality: A Machine Learning Approach"
+
+## Introduction
+
+This project aims to harness accelerometer data from devices like Jawbone Up, Nike FuelBand, and Fitbit to predict the manner in which exercises are performed. Utilizing data collected from accelerometers on the belt, forearm, arm, and dumbbell of participants, the project endeavors to classify barbell lifts into one of five categories, representing the quality of the exercise performed. This report outlines the methodology adopted, from exploratory data analysis (EDA) through to predictive modeling, culminating in the application of a Random Forest model to predict exercise quality in test cases.
+
+```{r c1, echo=TRUE}
+# Load necessary libraries
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(randomForest)
+library(rpart)
+library(rattle)
+library(psych)
+```
+
+```{r 2, echo=TRUE}
+# Data Loading
+training_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training_data <- read.csv(training_url, na.strings=c("NA","#DIV/0!", ""))
+testing_data <- read.csv(testing_url, na.strings=c("NA","#DIV/0!", ""))
+```
+
+## Exploratory Data Analysis (EDA)
+The EDA commenced with a summary and structural analysis of the training and testing datasets, which included diverse accelerometer measurements. Key descriptive statistics were reviewed, and the presence of null or missing values was assessed. Unique value analysis helped in understanding the data's diversity. A critical aspect of the EDA was visualizing the distribution of the 'classe' variable in the training data using a bar plot, providing insights into the balance of classes.
+
+```{r 3, echo=TRUE}
+# Exploratory Data Analysis
+summary(training_data[1:5])
+describe(training_data[1:5])
+sum(is.null(training_data))
+sum(is.na(training_data))
+head(unique(training_data$columnName))
+```
+
+```{r 4, echo=TRUE}
+summary(testing_data[1:5])
+describe(testing_data[1:5])
+sum(is.null(testing_data))
+sum(is.na(testing_data))
+head(unique(testing_data$columnName))
+```
+
+
+```{r 5, echo=TRUE}
+ggplot(training_data, aes(classe)) + geom_bar() + theme_minimal() + labs(title="Training Data Distribution of Classe Variable")
+```
+## Data Processing Summary
+
+Data preprocessing involved several crucial steps to prepare the data for modeling. Columns with excessive missing values were removed, ensuring data quality and integrity. Irrelevant columns, particularly the first seven, were discarded to focus on more pertinent features. The transformation of categorical variables into factors and the standardization of numerical columns were also integral to the preprocessing phase. This process ensured a consistent and analytically suitable dataset for training machine learning models.
+
+```{r 6, echo=TRUE}
+# Removing columns with too many missing values
+threshold <- 0.6 * nrow(training_data)
+training_data <- training_data[, colSums(is.na(training_data)) < threshold]
+testing_data <- testing_data[, colnames(testing_data) %in% colnames(training_data)]
+
+# Removing irrelevant columns (first 7 columns in this case)
+training_data <- select(training_data, -(1:7))
+testing_data <- select(testing_data, -(1:7))
+
+# Converting categorical variables to factors
+training_data <- mutate_if(training_data, is.character, as.factor)
+testing_data <- mutate_if(testing_data, is.character, as.factor)
+
+# Standardizing numerical columns
+num_cols <- sapply(training_data, is.numeric)
+preProcValues <- preProcess(training_data[, num_cols], method = c("center", "scale"))
+training_data[, num_cols] <- predict(preProcValues, training_data[, num_cols])
+testing_data[, num_cols] <- predict(preProcValues, testing_data[, num_cols])
+```
+## Data Modeling
+
+Two models were explored for this classification task: a Decision Tree (CART) and a Random Forest. Both models were trained on a subset of the processed training data, with cross-validation (5-fold) employed to ensure robustness and generalizability. The Decision Tree served as a baseline, offering interpretability, while the Random Forest model, known for its accuracy and ability to handle complex interactions, was the primary focus.
+
+```{r 7, echo=TRUE}
+# Splitting the dataset into training and testing subsets
+set.seed(123)
+splitIndex <- createDataPartition(training_data$classe, p = 0.75, list = FALSE)
+training_subset <- training_data[splitIndex, ]
+testing_subset <- training_data[-splitIndex, ]
+```
+
+```{r 8, echo=TRUE}
+# Decision Tree Model
+fitControl <- trainControl(method = "cv", number = 5)
+decisionTreeModel <- train(classe ~ ., data = training_subset, method = "rpart", trControl = fitControl)
+```
+
+```{r 9, echo=TRUE}
+# Random Forest Model
+randomForestModel <- randomForest(classe ~ ., data = training_subset)
+```
+
+```{r 10, echo=TRUE}
+# Printing model summaries
+print(decisionTreeModel)
+print(randomForestModel)
+```
+## Analysis of Model Findings
+The Decision Tree model provided moderate accuracy, suggesting some complexity in data that a single tree could not fully capture. In contrast, the Random Forest model demonstrated exceptional performance, with a notably low Out-Of-Bag error rate and high accuracy across all classes, as evidenced by the confusion matrix. This stark difference in performance highlighted the Random Forest's superiority in handling this dataset's intricacies.
+
+
+```{r 11, echo=TRUE}
+# Making predictions using the Random Forest model
+test_predictions <- predict(randomForestModel, newdata = testing_data)
+
+# Display the predictions
+print(test_predictions)
+```
+
+## Prediction Results and Conclusion
+The final stage involved deploying the Random Forest model on the test data, resulting in predictions for 20 different cases. The model's predictions showcased its ability to effectively classify the exercise quality across various categories. The success of these predictions underscores the potential of machine learning in enhancing our understanding and assessment of physical activity through wearable technology.
+
+This project not only demonstrates the practical application of machine learning in a health and fitness context but also sets the stage for further exploration into the optimization of training algorithms and the integration of such models into wearable technology for real-time feedback and analysis.
