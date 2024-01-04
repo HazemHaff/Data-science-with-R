@@ -1,59 +1,111 @@
+library(AppliedPredictiveModeling)
+data(concrete)
+library(caret)
+library(psych)
+library(forecast)
+
+set.seed(1000)
+inTrain = createDataPartition(mixtures$CompressiveStrength, p = 3/4)[[1]]
+training = mixtures[ inTrain,]
+testing = mixtures[-inTrain,]
+
+names(concrete)
+describe(concrete)
+describe(mixtures)
+describe(testing)
+describe(training)
+
 # Load necessary libraries
 library(ggplot2)
+library(Hmisc)
 library(dplyr)
 
-# Load the mtcars dataset
-data(mtcars)
+data(concrete)
 
-# Modify the 'am' column to a factor for clarity in plots and models
-mtcars$am <- factor(mtcars$am, labels = c("Automatic", "Manual"))
+# Convert continuous variables into categorical factors using cut2
+concrete_factorized <- concrete %>%
+  mutate(across(.cols = -CompressiveStrength, .fns = ~ cut2(., g = 5)))
 
-# Exploratory Data Analysis (EDA)
-# Boxplot of MPG by Transmission Type
-ggplot(mtcars, aes(x = am, y = mpg)) + 
-  geom_boxplot() +
-  labs(x = "Transmission Type", y = "Miles Per Gallon") +
-  theme_minimal()
+# Add an explicit index column for plotting
+concrete_factorized <- concrete_factorized %>% 
+  mutate(Index = row_number())
 
-# Model Fitting
-# Simple model with transmission type
-simple_model <- lm(mpg ~ am, data = mtcars)
+# Plot CompressiveStrength against index, colored by each variable
+plot_list <- list()
+for (var in colnames(concrete_factorized)[-which(colnames(concrete_factorized) == "CompressiveStrength")]) {
+  p <- ggplot(concrete_factorized, aes(x = Index, y = CompressiveStrength, color = !!sym(var))) +
+    geom_point() +
+    theme_minimal() +
+    ggtitle(paste("Compressive Strength vs Index - Colored by", var))
+  plot_list[[var]] <- p
+}
 
-# More complex model adjusting for other variables
-complex_model <- lm(mpg ~ am + wt + hp + qsec, data = mtcars)
+# Display the plots
+plot_list
 
-# Compare models using AIC and BIC
-aic_values <- AIC(simple_model, complex_model)[1, "AIC"]
-bic_values <- BIC(simple_model, complex_model)[1, "BIC"]
+# Find an optimal lambda for the Box-Cox transformation
+lambda <- BoxCox.lambda(concrete$Superplasticizer, lower = 0)
 
-# Choose the model with the lowest AIC or BIC
-chosen_model <- if(aic_values < bic_values) simple_model else complex_model
+# Apply the Box-Cox transformation
+concrete$SuperplasticizerBoxCox <- BoxCox(concrete$Superplasticizer, lambda)
 
-# Coefficient Interpretation
-# Interpret the coefficient for transmission type
-coef_summary <- summary(chosen_model)$coefficients
+# Create histogram for the transformed variable
+ggplot(concrete, aes(x = SuperplasticizerBoxCox)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  theme_minimal() +
+  ggtitle("Histogram of Box-Cox Transformed Superplasticizer")
 
-# Print the coefficient summary
-print(coef_summary)
 
-# Quantify MPG Difference
-# Calculate the MPG difference between transmission types
-mpg_difference <- coef(chosen_model)["amManual"]
 
-# Residual Diagnostics
-# Check residuals to ensure model assumptions are met
-par(mfrow = c(2, 2))
-plot(chosen_model)
+library(caret)
+library(AppliedPredictiveModeling)
+set.seed(3433)
+data(AlzheimerDisease)
+adData = data.frame(diagnosis, predictors)
+# Create partitions
+inTrain = createDataPartition(adData$diagnosis, p = 3/4)[[1]]
+# Split the data into training and testing sets
+training = adData[inTrain, ]
+testing = adData[-inTrain, ]
+# Step 1: Identify variables starting with 'IL'
+il_vars <- grep("^IL", names(training), value = TRUE)
+# Step 2: Perform PCA on these variables
+preproc <- preProcess(training[, il_vars], method = "pca", thresh = 0.8)
+# Step 3: Calculate the number of principal components
+num_components <- sum(preproc$rotation^2) # this gives us the eigenvalues
+cum_variance <- cumsum(num_components) / sum(num_components)
+num_needed <- which(cum_variance >= 0.8)[1]
+# Print the number of principal components needed to capture 80% of the variance
+num_needed
 
-# Uncertainty Quantification and Inference
-# Use confidence intervals to quantify the uncertainty around the MPG difference
-mpg_diff_confint <- confint(chosen_model, "amManual")
 
-# Print results to the console
-cat("AIC Comparison:\n", aic_values, "\n\n")
-cat("BIC Comparison:\n", bic_values, "\n\n")
-cat("Coefficient for Manual Transmission:\n", mpg_difference, "\n\n")
-cat("95% Confidence Interval for MPG Difference:\n", mpg_diff_confint, "\n\n")
 
-# Reset par to default
-par(mfrow = c(1, 1))
+
+library(caret)
+
+# Subset the training and testing sets to include only IL predictors and diagnosis
+il_vars <- grep("^IL", names(training), value = TRUE)
+training_subset <- training[, c(il_vars, "diagnosis")]
+testing_subset <- testing[, c(il_vars, "diagnosis")]
+
+# Perform PCA on the training predictors
+preproc <- preProcess(training_subset[, il_vars], method = "pca", thresh = 0.8)
+training_pca <- predict(preproc, training_subset[, il_vars])
+
+# Train a GLM using original predictors
+set.seed(3433) # For reproducibility
+glm_fit_original <- train(diagnosis ~ ., data = training_subset, method = "glm", trControl = trainControl(method = "none"))
+predictions_original <- predict(glm_fit_original, testing_subset)
+accuracy_original <- postResample(predictions_original, testing_subset$diagnosis)
+
+# Train a GLM using principal components
+training_pca$diagnosis <- training_subset$diagnosis # Add diagnosis to the PCA-transformed data
+glm_fit_pca <- train(diagnosis ~ ., data = training_pca, method = "glm", trControl = trainControl(method = "none"))
+testing_pca <- predict(preproc, testing_subset[, il_vars])
+testing_pca$diagnosis <- testing_subset$diagnosis # Add diagnosis to the PCA-transformed testing data
+predictions_pca <- predict(glm_fit_pca, testing_pca)
+accuracy_pca <- postResample(predictions_pca, testing_pca$diagnosis)
+
+# Compare accuracies
+accuracy_original
+accuracy_pca
